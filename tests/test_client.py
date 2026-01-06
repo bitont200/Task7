@@ -78,3 +78,49 @@ def test_hash_file_identical_content_different_names(tmp_path):
     f2.write_text(content)
     
     assert hash_file(f1) == hash_file(f2)
+
+# State Management Tests
+
+def test_save_and_load_state(tmp_path, monkeypatch):
+    """Test saving and loading state"""
+    monkeypatch.setattr("client.state.STATE_FILE", tmp_path / "state.json")
+    
+    state = {"abc", "def"}
+    save_state(state)
+    loaded = load_state()
+    
+    assert state == loaded
+
+
+def test_load_state_nonexistent_file(tmp_path, monkeypatch):
+    """Test loading state when file doesn't exist"""
+    monkeypatch.setattr("client.state.STATE_FILE", tmp_path / "nonexistent.json")
+    
+    loaded = load_state()
+    
+    assert loaded == set()
+
+
+def test_save_state_creates_directory(tmp_path, monkeypatch):
+    """Test that save_state creates directory if needed"""
+    state_file = tmp_path / "new_dir" / "state.json"
+    monkeypatch.setattr("client.state.STATE_DIR", tmp_path / "new_dir")
+    monkeypatch.setattr("client.state.STATE_FILE", state_file)
+    
+    (tmp_path / "new_dir").mkdir(parents=True, exist_ok=True)
+    
+    state = {"test"}
+    save_state(state)
+    
+    assert state_file.exists()
+
+
+def test_state_persists_empty_set(tmp_path, monkeypatch):
+    """Test that empty state can be saved and loaded"""
+    monkeypatch.setattr("client.state.STATE_FILE", tmp_path / "state.json")
+    
+    state = set()
+    save_state(state)
+    loaded = load_state()
+    
+    assert loaded == set()
