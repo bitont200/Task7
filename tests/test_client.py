@@ -311,3 +311,73 @@ def test_watcher_empty_directory(tmp_path):
     watcher.scan()
     
     assert len(uploaded) == 0
+
+# Other additional tests
+
+def test_full_workflow(tmp_path):
+    """Test complete workflow: create file, upload, verify state"""
+    uploaded_files = []
+    final_state = None
+
+    def mock_upload(url, file):
+        uploaded_files.append(str(file))
+        return 201
+
+    def mock_save(s):
+        nonlocal final_state
+        final_state = set(s)
+
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test content")
+    from common.hashing import hash_file
+    expected_hash = hash_file(test_file)
+
+    watcher = DirectoryWatcher(
+        tmp_path,
+        "http://test",
+        state=set(),
+        uploader=mock_upload,
+        saver=mock_save
+    )
+    watcher.scan()
+
+    assert len(uploaded_files) == 1
+    assert final_state == {expected_hash}
+
+
+def test_concurrent_client_simulation(tmp_path):
+    """Simulate multiple clients with shared state"""
+    global_state = set()
+    uploaded_by_client = {1: [], 2: []}
+
+    def mock_upload(url, file):
+        return 201
+
+    def mock_save(s):
+        global_state.update(s)
+
+    watcher1 = DirectoryWatcher(
+        tmp_path,
+        "http://test",
+        state=set(global_state),
+        uploader=mock_upload,
+        saver=mock_save
+    )
+    test_file = tmp_path / "shared.txt"
+    test_file.write_text("shared content")
+    watcher1.scan()
+    uploaded_by_client[1].append("shared.txt")
+
+    watcher2 = DirectoryWatcher(
+        tmp_path,
+        "http://test",
+        state=set(global_state),
+        uploader=mock_upload,
+        saver=mock_save
+    )
+    watcher2.scan()
+
+    assert len(uploaded_by_client[1]) == 1
+    assert len(uploaded_by_client[2]) == 0
+
+
