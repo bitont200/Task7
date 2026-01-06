@@ -124,3 +124,49 @@ def test_state_persists_empty_set(tmp_path, monkeypatch):
     loaded = load_state()
     
     assert loaded == set()
+
+# Uploader Tests
+
+def test_upload_success(tmp_path, monkeypatch):
+    """Test successful file upload"""
+    def mock_post(url, data):
+        class R:
+            status_code = 201
+        return R()
+    
+    monkeypatch.setattr(requests, "post", mock_post)
+    
+    f = tmp_path / "a.txt"
+    f.write_text("x")
+    
+    assert upload_file("http://x", f) == 201
+
+
+def test_upload_duplicate(tmp_path, monkeypatch):
+    """Test uploading duplicate file returns 409"""
+    def mock_post(url, data):
+        class R:
+            status_code = 409
+        return R()
+    
+    monkeypatch.setattr(requests, "post", mock_post)
+    
+    f = tmp_path / "a.txt"
+    f.write_text("x")
+    
+    assert upload_file("http://x", f) == 409
+
+
+def test_upload_server_error(tmp_path, monkeypatch):
+    """Test handling server error during upload"""
+    def mock_post(url, data):
+        class R:
+            status_code = 500
+        return R()
+    
+    monkeypatch.setattr(requests, "post", mock_post)
+    
+    f = tmp_path / "a.txt"
+    f.write_text("x")
+    
+    assert upload_file("http://x", f) == 500
