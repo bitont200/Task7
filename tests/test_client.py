@@ -170,3 +170,144 @@ def test_upload_server_error(tmp_path, monkeypatch):
     f.write_text("x")
     
     assert upload_file("http://x", f) == 500
+
+# Watcher Tests
+
+def test_file_uploaded_once(tmp_path):
+    """Test that file is uploaded only once even with multiple scans"""
+    uploaded = []
+    saved_state = []
+    
+    def mock_upload(url, file):
+        uploaded.append(file.name)
+        return 201
+    
+    def mock_save(s):
+        saved_state.append(set(s))
+    
+    f = tmp_path / "a.txt"
+    f.write_text("hello")
+    
+    watcher = DirectoryWatcher(tmp_path, "http://x", state=set(), uploader=mock_upload, saver=mock_save)
+    watcher.scan()
+    watcher.scan()
+    
+    assert uploaded.count("a.txt") == 1
+
+
+def test_watcher_skips_subdirectories(tmp_path):
+    """Test that watcher only processes files, not directories"""
+    uploaded = []
+    
+    def mock_upload(url, file):
+        uploaded.append(file.name)
+        return 201
+    
+    (tmp_path / "file.txt").write_text("hello")
+    (tmp_path / "subdir").mkdir()
+    (tmp_path / "subdir" / "nested.txt").write_text("nested")
+    
+    watcher = DirectoryWatcher(tmp_path, "http://x", state=set(), uploader=mock_upload, saver=lambda s: None)
+    watcher.scan()
+    
+    assert len(uploaded) == 1
+    assert "file.txt" in uploaded
+
+
+def test_watcher_resumes_from_state(tmp_path):
+    """Test that watcher resumes from previous state"""
+    uploaded = []
+    
+    def mock_upload(url, file):
+        uploaded.append(file.name)
+        return 201
+        
+    f1 = tmp_path / "old.txt"
+    f1.write_text("old content")
+    from common.hashing import hash_file
+    old_hash = hash_file(f1)
+    
+    f2 = tmp_path / "new.txt"
+    f2.write_text("new content")
+    
+    watcher = DirectoryWatcher(tmp_path, "http://x", state={old_hash}, uploader=mock_upload, saver=lambda s: None)
+    watcher.scan()
+    
+    assert len(uploaded) == 1
+    assert "new.txt" in uploaded
+    assert "old.txt" not in uploaded
+
+
+def test_watcher_handles_multiple_files(tmp_path):
+    """Test watcher with multiple files"""
+    uploaded = []
+    
+    def mock_upload(url, file):
+        uploaded.append(file.name)
+        return 201
+    
+    for i in range(5):
+        (tmp_path / f"file{i}.txt").write_text(f"content{i}")
+    
+    watcher = DirectoryWatcher(tmp_path, "http://x", state=set(), uploader=mock_upload, saver=lambda s: None)
+    watcher.scan()
+    
+    assert len(uploaded) == 5
+
+
+def test_watcher_handles_upload_failure(tmp_path):
+    """Test that watcher doesn't save state on upload failure"""
+    uploaded = []
+    saved_states = []
+    
+    def mock_upload(url, file):
+        uploaded.append(file.name)
+        return 500  
+    
+    def mock_save(s):
+        saved_states.append(set(s))
+    
+    f = tmp_path / "a.txt"
+    f.write_text("hello")
+    
+    watcher = DirectoryWatcher(tmp_path, "http://x", state=set(), uploader=mock_upload, saver=mock_save)
+    watcher.scan()
+    
+    assert len(uploaded) == 1
+    assert len(saved_states) == 0
+
+
+def test_watcher_handles_409_duplicate(tmp_path, monkeypatch):
+    """Test that watcher saves state when server returns 409 (duplicate)"""
+    uploaded = []
+    saved_states = []
+    
+    def mock_upload(url, file):
+        uploaded.append(file.name)
+        return 409 
+    
+    def mock_save(s):
+        saved_states.append(set(s))
+    
+    f = tmp_path / "a.txt"
+    f.write_text("hello")
+    
+    watcher = DirectoryWatcher(tmp_path, "http://x", state=set(), uploader=mock_upload, saver=mock_save)
+    watcher.scan()
+    
+    assert len(saved_states) == 1
+    assert len(saved_states[0]) == 1
+
+
+def test_watcher_empty_directory(tmp_path):
+    """Test watcher with empty directory"""
+    uploaded = []
+    
+    def mock_upload(url, file):
+        uploaded.append(file.name)
+        return 201
+    
+    watcher = DirectoryWatcher(tmp_path, "http://x", state=set(), uploader=mock_upload, saver=lambda s: None)
+    watcher.scan()
+    
+    assert len(uploaded) == 0
